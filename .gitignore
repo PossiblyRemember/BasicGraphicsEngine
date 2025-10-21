@@ -39,3 +39,11 @@
 
 # debug information files
 *.dwo
+/.vs/basic_game_LOVE_CMAKE_SMILE
+/.vs
+/build2/CMakeFiles
+/build2/vcpkg_installed/vcpkg
+/build2/vcpkg_installed/x64-windows
+/build2
+/out/build/x64-debug
+/vcpkg_installed
