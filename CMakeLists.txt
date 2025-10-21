@@ -1,7 +1,7 @@
 ﻿cmake_minimum_required(VERSION 3.15)
 project(BASIC_GAME)
 message(STATUS "Using toolchain file: ${CMAKE_TOOLCHAIN_FILE}")
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 
 set(CMAKE_TOOLCHAIN_FILE "H:/Dev/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 

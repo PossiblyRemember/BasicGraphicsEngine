@@ -2,12 +2,15 @@
 // or project specific include files.
 
 #pragma once
+#define GLM_ENABLE_EXPERIMENTAL
+
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -20,9 +23,9 @@ using std::vector;
 
 namespace Game{
 	struct Transform {
-		glm::vec3 position{ 0.0f };
-		glm::quat rotation{ 1.0f, 0.0f, 0.0f, 0.0f }; // rotation as quaternion (THIS IS IMPORTANT)
-		glm::vec3 scale{ 1.0f };
+        glm::vec3 position = glm::vec3(0.0f);
+        glm::quat rotation = glm::quat(glm::vec3(0.0f)); // from Euler or direct quaternion
+        glm::vec3 scale = glm::vec3(1.0f);
 	};
 	struct Vertex {
 		glm::vec3 position;
@@ -112,6 +115,11 @@ namespace Game{
             upload();
         }
 
+        Geometry(const std::string& path, Transform initTransform) {
+            transform = initTransform;
+            Geometry::Geometry(path);
+        }
+
 
         virtual ~Geometry() {
             if (ebo) glDeleteBuffers(1, &ebo);
@@ -119,6 +127,21 @@ namespace Game{
             if (vao) glDeleteVertexArrays(1, &vao);
 
 
+        }
+
+
+        glm::mat4 getModelMatrix() const {
+            glm::mat4 model = glm::mat4(1.0f);
+
+            model = glm::translate(model, transform.position);
+
+            // Rotation
+            model *= glm::toMat4(transform.rotation);
+
+
+            model = glm::scale(model, transform.scale);
+
+            return model;
         }
 
         void upload() {
@@ -150,6 +173,12 @@ namespace Game{
 
         void draw(GLuint shaderProgram) {
             glUseProgram(shaderProgram);
+
+            glm::mat4 model = getModelMatrix();
+
+            GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
+            glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
             glBindVertexArray(vao);
 
             if (!indices.empty()) {

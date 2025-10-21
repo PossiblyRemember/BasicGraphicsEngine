@@ -1,6 +1,8 @@
 ﻿#pragma region BASIC_INITIALIZATION
 
 #include "main.hpp"
+#include <unordered_map>
+#include <functional>
 
 using glm::vec3;
 using std::vector;
@@ -115,22 +117,43 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
 #pragma region KEYBOARD_CONTROLS 
 
 void processInput(GLFWwindow* window) {
-    float cameraSpeed = 2.5f * deltaTime; // adjust speed
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        cameraPos += cameraSpeed * cameraFront;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        cameraPos -= cameraSpeed * cameraFront;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
-    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-        cameraPos -= cameraUp * cameraSpeed;
-    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-        cameraPos += cameraUp * cameraSpeed;
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, 1);
+    float cameraSpeed = 2.5f * deltaTime;
+
+    static const std::unordered_map<int, std::function<void()>> actions = {
+        {GLFW_KEY_W, [&]() { cameraPos += cameraSpeed * cameraFront; }},
+        {GLFW_KEY_S, [&]() { cameraPos -= cameraSpeed * cameraFront; }},
+        {GLFW_KEY_A, [&]() { cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed; }},
+        {GLFW_KEY_D, [&]() { cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed; }},
+        {GLFW_KEY_Q, [&]() { cameraPos -= cameraUp * cameraSpeed; }},
+        {GLFW_KEY_E, [&]() { cameraPos += cameraUp * cameraSpeed; }},
+        {GLFW_KEY_ESCAPE, [&]() { glfwSetWindowShouldClose(window, true); }},
+    };
+
+    for (const auto& [key, action] : actions)
+        if (glfwGetKey(window, key) == GLFW_PRESS)
+            action();
 }
+
+
+#define DEBUG
+#ifdef DEBUG
+void processModelInput(GLFWwindow* window,Game::Geometry& model) {
+    float moveSpeed = 2.5f * deltaTime;
+
+    static const std::unordered_map<int, std::function<void()>> actions = {
+        {GLFW_KEY_I, [&]() { model.transform.position += glm::vec3(0.0f, 0.0f, -moveSpeed); }},
+        {GLFW_KEY_K, [&]() { model.transform.position += glm::vec3(0.0f, 0.0f,  moveSpeed); }},
+        {GLFW_KEY_J, [&]() { model.transform.position += glm::vec3(-moveSpeed, 0.0f, 0.0f); }},
+        {GLFW_KEY_L, [&]() { model.transform.position += glm::vec3(moveSpeed, 0.0f, 0.0f); }},
+        {GLFW_KEY_U, [&]() { model.transform.position += glm::vec3(0.0f, -moveSpeed, 0.0f); }},
+        {GLFW_KEY_O, [&]() { model.transform.position += glm::vec3(0.0f,  moveSpeed, 0.0f); }},
+    };
+
+    for (const auto& [key, action] : actions)
+        if (glfwGetKey(window, key) == GLFW_PRESS)
+            action();
+}
+#endif
 
 #pragma endregion
 
@@ -231,6 +254,7 @@ int main() {
         lastFrame = currentFrame;
 
         processInput(window);
+        processModelInput(window, *geometryObjects[0]);
 
         glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

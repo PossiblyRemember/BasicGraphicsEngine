@@ -47,3 +47,4 @@
 /build2
 /out/build/x64-debug
 /vcpkg_installed
+/out/build/x64-release
