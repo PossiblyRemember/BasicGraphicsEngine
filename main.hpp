@@ -22,6 +22,59 @@ using glm::vec3;
 using std::vector;
 
 namespace Game{
+#pragma region HelperFunctions
+    glm::quat lookAtQuaternion(const glm::vec3& fromDir, const glm::vec3& toTarget, const glm::vec3& up = glm::vec3(0, 1, 0)) {
+        glm::vec3 forward = glm::normalize(toTarget - fromDir);
+        glm::vec3 right = glm::normalize(glm::cross(up, forward));
+        glm::vec3 newUp = glm::cross(forward, right);
+
+        glm::mat3 rotMat(right, newUp, forward); // columns = right, up, forward
+        return glm::quat_cast(rotMat);
+    }
+
+    class Shader {
+    public:
+        GLuint ID;
+
+        Shader(const char* vertexSrc, const char* fragmentSrc) {
+            // compile shaders, link program, store ID
+            // error handling omitted for brevity
+            GLuint vertex = glCreateShader(GL_VERTEX_SHADER);
+            glShaderSource(vertex, 1, &vertexSrc, nullptr);
+            glCompileShader(vertex);
+
+            GLuint fragment = glCreateShader(GL_FRAGMENT_SHADER);
+            glShaderSource(fragment, 1, &fragmentSrc, nullptr);
+            glCompileShader(fragment);
+
+            ID = glCreateProgram();
+            glAttachShader(ID, vertex);
+            glAttachShader(ID, fragment);
+            glLinkProgram(ID);
+
+            glDeleteShader(vertex);
+            glDeleteShader(fragment);
+        }
+
+        void use() const {
+            glUseProgram(ID);
+        }
+
+        void setInt(const std::string& name, int value) const {
+            glUniform1i(glGetUniformLocation(ID, name.c_str()), value);
+        }
+
+        void setVec3(const std::string& name, const glm::vec3& value) const {
+            glUniform3fv(glGetUniformLocation(ID, name.c_str()), 1, &value[0]);
+        }
+
+        void setMat4(const std::string& name, const glm::mat4& mat) const {
+            glUniformMatrix4fv(glGetUniformLocation(ID, name.c_str()), 1, GL_FALSE, &mat[0][0]);
+        }
+    };
+#pragma endregion
+
+#pragma region BaseProperties
 	struct Transform {
         glm::vec3 position = glm::vec3(0.0f);
         glm::quat rotation = glm::quat(glm::vec3(0.0f)); // from Euler or direct quaternion
@@ -32,8 +85,10 @@ namespace Game{
 		glm::vec3 normal;
 		glm::vec2 texCoords;
 	};
+#pragma endregion
 
-	class GameObject {
+#pragma region EngineObjects
+    class GameObject {
 	public:
 		Transform transform; // Transform for position, rotation, and scale
 
@@ -60,10 +115,8 @@ namespace Game{
             return q;
         }
 
-        GameObject() {
-            transform.position = glm::vec3(0.0f);
-            transform.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-            transform.scale = glm::vec3(1.0f);
+        GameObject() = default;
+        GameObject(const Transform& transform) : transform(transform) {
         }
         virtual ~GameObject() {}
 
@@ -73,16 +126,18 @@ namespace Game{
 
     class Geometry : public Game::GameObject {
     public:
-        vector<vec3> vertices;
+        vector<Vertex> vertices;
         vector<unsigned int> indices;
 
         GLuint vao = 0, vbo = 0, ebo = 0;
+        GLuint textureID = 0; 
 
 
         Geometry() {
         }
 
         Geometry(const std::string& path) {
+            createDefaultWhiteTexture(); // debug
 
             Assimp::Importer importer; // initalize model importer and process model
             const aiScene* scene = importer.ReadFile(path,
@@ -96,29 +151,39 @@ namespace Game{
                 return;
             }
 
-            for (unsigned int m = 0; m < scene->mNumMeshes; m++) {
-                aiMesh* mesh = scene->mMeshes[m];
-                size_t vertexOffset = vertices.size(); // prior vertices count
-                for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-                    vertices.push_back(vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z));
+            for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+                size_t vertexOffset = vertices.size(); // number of vertices already in the vector
+
+                for (unsigned int i = 0; i < scene->mMeshes[m]->mNumVertices; ++i) {
+                    glm::vec3 pos(scene->mMeshes[m]->mVertices[i].x, scene->mMeshes[m]->mVertices[i].y, scene->mMeshes[m]->mVertices[i].z);
+                    glm::vec3 norm(scene->mMeshes[m]->mNormals[i].x, scene->mMeshes[m]->mNormals[i].y, scene->mMeshes[m]->mNormals[i].z);
+
+                    glm::vec2 uv(0.0f, 0.0f);
+                    if (scene->mMeshes[m]->mTextureCoords[0]) {
+                        uv = glm::vec2(scene->mMeshes[m]->mTextureCoords[0][i].x, scene->mMeshes[m]->mTextureCoords[0][i].y);
+                    }
+
+                    vertices.push_back({ pos, norm, uv });
                 }
 
-                // Indices (faces)
-                for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
-                    aiFace face = mesh->mFaces[i];
-                    for (unsigned int j = 0; j < face.mNumIndices; j++) {
-                        indices.push_back(face.mIndices[j] + static_cast<unsigned int>(vertexOffset));
+                for (unsigned int i = 0; i < scene->mMeshes[m]->mNumFaces; ++i) {
+                    aiFace face = scene->mMeshes[m]->mFaces[i];
+                    for (unsigned int j = 0; j < face.mNumIndices; ++j) {
+                        indices.push_back(face.mIndices[j] + vertexOffset);
                     }
                 }
+            }
+            if (!indices.empty()) {
+                glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
+            }
+            else {
+                glDrawArrays(GL_TRIANGLES, 0, vertices.size());
             }
 
             upload();
         }
 
-        Geometry(const std::string& path, Transform initTransform) {
-            transform = initTransform;
-            Geometry::Geometry(path);
-        }
+        Geometry(const std::string& path, const Transform& initTransform) : Geometry(path) {transform = initTransform;}
 
 
         virtual ~Geometry() {
@@ -149,9 +214,8 @@ namespace Game{
             glGenBuffers(1, &vbo);
             glBindVertexArray(vao);
 
-            // Upload vertex data 
             glBindBuffer(GL_ARRAY_BUFFER, vbo);
-            glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(vec3), vertices.data(), GL_STATIC_DRAW);
+            glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
 
             if (!indices.empty()) {
                 glGenBuffers(1, &ebo);
@@ -159,17 +223,19 @@ namespace Game{
                 glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
             }
 
-            /*glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-            glEnableVertexAttribArray(1);*/
-
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+            // --- Vertex attributes ---
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0); // position
             glEnableVertexAttribArray(0);
 
+            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal)); // normal
+            glEnableVertexAttribArray(1);
+
+            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoords)); // uv
+            glEnableVertexAttribArray(2);
 
             glBindVertexArray(0);
         }
+
 
         void draw(GLuint shaderProgram) {
             glUseProgram(shaderProgram);
@@ -178,6 +244,10 @@ namespace Game{
 
             GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
             glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, textureID);
+            glUniform1i(glGetUniformLocation(shaderProgram, "texture1"), 0); // shader uniform
 
             glBindVertexArray(vao);
 
@@ -191,33 +261,54 @@ namespace Game{
 
             glBindVertexArray(0);
         }
+
+    private:
+        void createDefaultWhiteTexture() {
+            glGenTextures(1, &textureID);
+            glBindTexture(GL_TEXTURE_2D, textureID);
+
+            unsigned char whitePixel[3] = { 255, 255, 255 }; // RGB
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, whitePixel);
+
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+
     };
 
-    class Cube : public Geometry {
+#pragma region Lights
+    struct DirectionalLight {
+        vec3 direction;
+        vec3 color;
+    };
+
+    class LightManager {
     public:
-        Cube(float scale = 1) {
-            vertices = {
-                // positions         
-               {-0.5f*scale, -0.5f*scale, -0.5f*scale},
-               { 0.5f*scale, -0.5f*scale, -0.5f*scale},
-               { 0.5f*scale,  0.5f*scale, -0.5f*scale},
-               {-0.5f*scale,  0.5f*scale, -0.5f*scale},
-               {-0.5f*scale, -0.5f*scale,  0.5f*scale},
-               { 0.5f*scale, -0.5f*scale,  0.5f*scale},
-               { 0.5f*scale,  0.5f*scale,  0.5f*scale},
-               {-0.5f*scale,  0.5f*scale,  0.5f*scale}
-            };
+        std::vector<DirectionalLight> dirLights;
 
-            indices = {
-                0, 1, 2, 2, 3, 0,
-                4, 5, 6, 6, 7, 4,
-                0, 1, 5, 5, 4, 0,
-                2, 3, 7, 7, 6, 2,
-                1, 2, 6, 6, 5, 1,
-                3, 0, 4, 4, 7, 3
-            };
+        void addDirectionalLight(const glm::vec3& direction, const glm::vec3& color) {
+            dirLights.push_back({ direction, color });
+        }
 
-            upload();
+        void pointLightAtTarget(size_t index, const glm::vec3& from, const glm::vec3& target) {
+            if (index >= dirLights.size()) return;
+            glm::quat q = lookAtQuaternion(from, target);
+            dirLights[index].direction = glm::rotate(q, glm::vec3(0, 0, -1));
+        }
+
+        void uploadToShader(Shader& shader) {
+            shader.use();
+            shader.setInt("numDirLights", static_cast<int>(dirLights.size()));
+            for (size_t i = 0; i < dirLights.size(); ++i) {
+                std::string base = "dirLights[" + std::to_string(i) + "]";
+                shader.setVec3(base + ".direction", dirLights[i].direction);
+                shader.setVec3(base + ".color", dirLights[i].color);
+            }
         }
     };
+#pragma endregion
+#pragma endregion
+
+
 }

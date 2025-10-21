@@ -6,6 +6,7 @@
 
 using glm::vec3;
 using std::vector;
+using namespace Game;
 
 int width = 1920, height = 1080;
 
@@ -27,35 +28,86 @@ vector<Game::Geometry*> geometryObjects;
 #pragma region SHADERS
 const char* vertexShaderSource = R"(
 #version 330 core
-layout (location = 0) in vec3 aPos;
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aTexCoords;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
-out vec3 vertexColor;
+out vec3 FragPos;
+out vec3 Normal;
+out vec2 TexCoords;
 out float depthVal;
 
 void main() {
-    vec4 viewSpacePos = view * model * vec4(aPos, 1.0);
-    depthVal = -viewSpacePos.z / 10.0; // adjust to scene scale
-    depthVal = clamp(depthVal, 0.0, 1.0);
+    vec4 worldPos = model * vec4(aPos, 1.0);
+    FragPos = vec3(worldPos);
 
-    // make finalColor a vec3 (grayscale by depth)
-    vertexColor = vec3(1.0 - depthVal);
+    Normal = mat3(transpose(inverse(model))) * aNormal;
+    TexCoords = aTexCoords;
+
+    vec4 viewSpacePos = view * worldPos;
+    depthVal = -viewSpacePos.z / 10.0;
+    depthVal = clamp(depthVal, 0.0, 1.0);
 
     gl_Position = projection * viewSpacePos;
 }
+
 )";
 
 const char* fragmentShaderSource = R"(
 #version 330 core
-in vec3 vertexColor;
+in vec3 FragPos;
+in vec3 Normal;
+in vec2 TexCoords;
+in float depthVal;
+
 out vec4 FragColor;
 
+uniform vec3 viewPos;
+uniform vec3 objectColor;
+
+struct DirectionalLight {
+    vec3 direction;
+    vec3 color;
+};
+#define MAX_DIR_LIGHTS 4
+uniform int numDirLights;
+uniform DirectionalLight dirLights[MAX_DIR_LIGHTS];
+
+uniform sampler2D texture1;
+uniform float ambientStrength = 0.1;
+
 void main() {
-    FragColor = vec4(vertexColor, 1.0);
+    vec3 norm = normalize(Normal);
+    vec3 viewDir = normalize(viewPos - FragPos);
+
+    vec3 texColor = texture(texture1, TexCoords).rgb;
+
+    vec3 resultColor = vec3(0.0);
+    for (int i = 0; i < numDirLights; ++i) {
+        vec3 lightDir = normalize(-dirLights[i].direction);
+        float diff = max(dot(norm, lightDir), 0.0);
+
+        vec3 halfway = normalize(lightDir + viewDir);
+        float spec = pow(max(dot(norm, halfway), 0.0), 32.0);
+
+        vec3 diffuse = diff * dirLights[i].color;
+        vec3 specular = spec * dirLights[i].color;
+
+        resultColor += (diffuse + specular) * texColor;
+    }
+
+    resultColor += ambientStrength * texColor;
+
+    vec3 depthGray = vec3(1.0 - depthVal);
+    resultColor = mix(depthGray, resultColor, 0.8);
+
+    FragColor = vec4(resultColor, 1.0);
 }
+
 )";
 
 #pragma endregion
@@ -235,20 +287,45 @@ int main() {
     glEnable(GL_DEPTH_TEST);
 #pragma endregion
 
-    //Game::Cube* cube = new Game::Cube(1.0f);
-	//geometryObjects.push_back(cube);
-
     // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); //wireframe
 
-    Game::Geometry* monkey = new Game::Geometry("C:\\Users\\tis\\Documents\\monkey.fbx");
+    LightManager lightManager;
+
+    // Add a directional “sun”
+    DirectionalLight sun;
+    sun.direction = glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f));
+    sun.color = glm::vec3(1.0f, 0.95f, 0.9f);
+    lightManager.dirLights.push_back(sun);
+
+    // Add a fill light
+    DirectionalLight fill;
+    fill.direction = glm::normalize(glm::vec3(1.0f, -0.5f, 0.0f));
+    fill.color = glm::vec3(0.3f, 0.4f, 0.5f);
+    lightManager.dirLights.push_back(fill);
+
+
+    Game::Geometry* monkey = new Game::Geometry("C:\\Users\\tis\\Documents\\monkey.fbx",
+        Game::Transform(
+            vec3(0.0f),
+
+            glm::quat(glm::radians(
+                vec3(
+                    -90.0f,
+                    0.0f,
+                    0.0f))),
+            
+            vec3(1.0f))
+        );
 	geometryObjects.push_back(monkey);
 
-    unsigned int shaderProgram = createShaderProgram();
-
+    Shader shader(vertexShaderSource, fragmentShaderSource);
+    shader.use();
+    shader.setVec3("viewPos", cameraPos);
 
 
 
     while (!glfwWindowShouldClose(window)) {
+#pragma region GLSetup
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
@@ -259,29 +336,24 @@ int main() {
         glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glUseProgram(shaderProgram);
+        shader.use();
 
         glm::mat4 model = glm::mat4(1.0f);
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
 
-        // Send uniforms
-        GLuint modelLoc = glGetUniformLocation(shaderProgram, "model");
-        GLuint viewLoc = glGetUniformLocation(shaderProgram, "view");
-        GLuint projLoc = glGetUniformLocation(shaderProgram, "projection");
+        // Upload camera uniforms
+        shader.setMat4("view", view);
+        shader.setMat4("projection", projection);
+        shader.setVec3("viewPos", cameraPos);
 
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        // Upload lights
+        lightManager.uploadToShader(shader);
+#pragma endregion
 
         for (Game::Geometry* geometry : geometryObjects) {
-			geometry->draw(shaderProgram);
+			geometry->draw(shader.ID);
         }
 
-
-
-        //cube.draw(shaderProgram);
-
-        //monkey.draw(shaderProgram);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
