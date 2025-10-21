@@ -95,16 +95,17 @@ namespace Game{
 
             for (unsigned int m = 0; m < scene->mNumMeshes; m++) {
                 aiMesh* mesh = scene->mMeshes[m];
+                size_t vertexOffset = vertices.size(); // prior vertices count
                 for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-                    // Positions
                     vertices.push_back(vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z));
                 }
 
-                // Indices
+                // Indices (faces)
                 for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
                     aiFace face = mesh->mFaces[i];
-                    for (unsigned int j = 0; j < face.mNumIndices; j++)
-                        indices.push_back(face.mIndices[j]);
+                    for (unsigned int j = 0; j < face.mNumIndices; j++) {
+                        indices.push_back(face.mIndices[j] + static_cast<unsigned int>(vertexOffset));
+                    }
                 }
             }
 
@@ -155,7 +156,8 @@ namespace Game{
                 glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, 0);
             }
             else {
-                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / 3));
+                // vertices.size() is the number of `vec3` vertices
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size()));
             }
 
             glBindVertexArray(0);

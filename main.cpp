@@ -5,7 +5,7 @@
 using glm::vec3;
 using std::vector;
 
-int width = 200, height = 200;
+int width = 1920, height = 1080;
 
 float lastFrame = 0.0f;
 float deltaTime = 0.0f;
@@ -24,7 +24,6 @@ vector<Game::Geometry*> geometryObjects;
 
 #pragma region SHADERS
 const char* vertexShaderSource = R"(
-
 #version 330 core
 layout (location = 0) in vec3 aPos;
 
@@ -37,22 +36,26 @@ out float depthVal;
 
 void main() {
     vec4 viewSpacePos = view * model * vec4(aPos, 1.0);
-    depthVal = -viewSpacePos.z / 10.0; // adjust 50.0 to your scene scale
+    depthVal = -viewSpacePos.z / 10.0; // adjust to scene scale
     depthVal = clamp(depthVal, 0.0, 1.0);
 
-    vec3 finalColor = (1.0 - depthVal) ; // darkens by depth
-    vertexColor = finalColor;
+    // make finalColor a vec3 (grayscale by depth)
+    vertexColor = vec3(1.0 - depthVal);
 
-    gl_Position = projection * viewSpacePos; // determine position in clip space
-})";
+    gl_Position = projection * viewSpacePos;
+}
+)";
 
 const char* fragmentShaderSource = R"(
 #version 330 core
+in vec3 vertexColor;
 out vec4 FragColor;
 
 void main() {
-    FragColor = vec4(1.0, 1.0, 1.0, 1.0);
-})";
+    FragColor = vec4(vertexColor, 1.0);
+}
+)";
+
 #pragma endregion
 
 
@@ -137,6 +140,15 @@ unsigned int compileShader(unsigned int type, const char* source) {
     unsigned int shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, nullptr);
     glCompileShader(shader);
+
+    // --- check compile status
+    GLint success;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char infoLog[1024];
+        glGetShaderInfoLog(shader, 1024, nullptr, infoLog);
+        std::cerr << "Shader compile error (" << (type == GL_VERTEX_SHADER ? "VERT" : "FRAG") << "):\n" << infoLog << std::endl;
+    }
     return shader;
 }
 
@@ -147,10 +159,21 @@ unsigned int createShaderProgram() {
     glAttachShader(program, vertex);
     glAttachShader(program, fragment);
     glLinkProgram(program);
+
+    // --- check link status
+    GLint success;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        char infoLog[1024];
+        glGetProgramInfoLog(program, 1024, nullptr, infoLog);
+        std::cerr << "Program link error:\n" << infoLog << std::endl;
+    }
+
     glDeleteShader(vertex);
     glDeleteShader(fragment);
     return program;
 }
+
 #pragma endregion
 
 
@@ -160,6 +183,7 @@ int main() {
         std::cerr << "GLFW failed to init.\n";
         return -1;
     }
+
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -190,6 +214,8 @@ int main() {
 
     //Game::Cube* cube = new Game::Cube(1.0f);
 	//geometryObjects.push_back(cube);
+
+    // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); //wireframe
 
     Game::Geometry* monkey = new Game::Geometry("C:\\Users\\tis\\Documents\\monkey.fbx");
 	geometryObjects.push_back(monkey);
